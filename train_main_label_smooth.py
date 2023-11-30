@@ -15,7 +15,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from utils.create_logger import create_logger
-from utils import (load_checkpoints, save_checkpoints, create_result_dir, 
+from utils import (load_checkpoints, save_checkpoints, create_result_dir,
                    load_model, print_params, init_weights)
 
 from torchvision_db import return_loaders
@@ -44,13 +44,13 @@ class LabelSmoothingCrossEntropy(nn.Module):
         return loss.mean()
 
 def train(train_loader, net, optimizer, criterion, train_info, epoch, device):
-    """ Perform single epoch of the training."""        
+    """ Perform single epoch of the training."""
     net.train()
-    
+
     # # initialize variables that are augmented in every batch.
     train_loss, correct, total = 0, 0, 0
     start_time = time()
-    for idx, data_dict in enumerate(train_loader):        
+    for idx, data_dict in enumerate(train_loader):
         img = data_dict[0]
         label = data_dict[1]
 
@@ -77,33 +77,34 @@ def train(train_loader, net, optimizer, criterion, train_info, epoch, device):
             logging.info(m2.format(diff_time, epoch, idx, len(train_loader),
                          float(loss.item()), acc))
             start_time = time()
-        
+
     return net
 
 
-def test(net, test_loader, epoch, device='cuda'):
+def test(net, test_loader, epoch, device='cuda', verbose=False):
     """ Perform testing, i.e. run net on test_loader data
         and return the accuracy. """
     cm_predict = []
     cm_target = []
-    
+
     net.eval()
     correct, total = 0, 0
     if hasattr(net, 'is_training'):
         net.is_training = False
     for (idx, data) in enumerate(test_loader):
-        sys.stdout.write('\r [%d/%d]' % (idx + 1, len(test_loader)))
+        if verbose:
+            sys.stdout.write('\r [%d/%d]' % (idx + 1, len(test_loader)))
         sys.stdout.flush()
-        
+
         img = data[0].to(device)
         label = data[1].to(device)
-        
+
         with torch.no_grad():
              pred = net(img)
         _, predicted = pred.max(1)
         total += label.size(0)
         correct += predicted.eq(label).sum().item()
-        
+
         cm_predict.append(predicted)
         cm_target.append(label)
     if hasattr(net, 'is_training'):
@@ -158,11 +159,11 @@ def main(yml_name=None, seed=None, label='', use_cuda=True):
     if 'init' in modc['args'].keys():
         net.init = modc['args']['init']
     init_weights(net)
-    
+
     # # define the appropriate paths.
     model_file = mkdir_p(join(out, 'models'))
     logger = create_logger(join(out, 'logs'))
-    
+
     # # define the criterion and the optimizer.
     smoothing = yml['training_info']['smoothing']
     print('the alpha of label smoothing:')
@@ -181,15 +182,15 @@ def main(yml_name=None, seed=None, label='', use_cuda=True):
     tinfo = yml['training_info']
     mil = tinfo['lr_milestones'] if 'lr_milestones' in tinfo.keys() else [40, 60, 80, 100]
     gamma = tinfo['lr_gamma'] if 'lr_gamma' in tinfo.keys() else 0.1
-    
+
     if tinfo['multi_step']:
         print('multi step!')
-        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=mil, gamma=gamma, last_epoch=start_epoch)  
+        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=mil, gamma=gamma, last_epoch=start_epoch)
     elif tinfo['exponential_step']:
         print('exponential step!')
         scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.92, last_epoch=start_epoch)
     elif tinfo['cosine_step']:
-        print('Cosine step!') 
+        print('Cosine step!')
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=120)
 
     best_acc, best_epoch, accuracies = 0, 0, []
@@ -197,32 +198,30 @@ def main(yml_name=None, seed=None, label='', use_cuda=True):
 
     for epoch in range(start_epoch + 1, total_epochs + 1):
         #scheduler.step()
-        net = train(train_loader, net, optimizer, criterion, yml['training_info'], 
+        net = train(train_loader, net, optimizer, criterion, yml['training_info'],
                     epoch, device)
         save_checkpoints(net, optimizer, epoch, model_file)
-        # # testing mode to evaluate accuracy. 
+        # # testing mode to evaluate accuracy.
         acc, predicted, labels = test(net, test_loader, epoch, device=device)
         if acc > best_acc:
             out_path = join(model_file, 'net_best_1.pth')
-            state = {'net': net.state_dict(), 'acc': acc, 
+            state = {'net': net.state_dict(), 'acc': acc,
                      'epoch': epoch, 'n_params': total_params}
             torch.save(state, out_path)
             best_acc = acc
             best_epoch = epoch
 
         accuracies.append(float(acc))
-        msg = 'Epoch:{}.\tAcc: {:.03f}.\t Best_Acc:{:.03f} (epoch: {}).'
+        msg = '\nEpoch:{}.\tAcc: {:.03f}.\t Best_Acc:{:.03f} (epoch: {}).\n'
         print(msg.format(epoch,  acc, best_acc, best_epoch))
         logging.info(msg.format(epoch, acc, best_acc, best_epoch))
 
         scheduler.step()
     d1 = {'acc': accuracies, 'best_acc': best_acc, 'epoch': best_epoch}
     export_pickle(d1, join(out, 'metadata.pkl'))
-    
+
     #test_acc = test(net, test_loader, device=device)
     #logging.info('Test accuracy:{}'.format(test_acc))
     #print('Test accuracy:{}'.format(test_acc))
 if __name__ == '__main__':
     main()
-
-
