@@ -17,6 +17,7 @@ import torch.nn.functional as F
 from utils.create_logger import create_logger
 from utils import (load_checkpoints, save_checkpoints, create_result_dir,
                    load_model, print_params, init_weights)
+from utils.visualisations import MetricsOverEpochsViz
 
 from torchvision_db import return_loaders
 try:
@@ -43,7 +44,8 @@ class LabelSmoothingCrossEntropy(nn.Module):
         loss = confidence * nll_loss + self.smoothing * smooth_loss
         return loss.mean()
 
-def train(train_loader, net, optimizer, criterion, train_info, epoch, device):
+def train(train_loader, net, optimizer, criterion, train_info, epoch, device,
+          metric_logger=None):
     """ Perform single epoch of the training."""
     net.train()
 
@@ -77,6 +79,10 @@ def train(train_loader, net, optimizer, criterion, train_info, epoch, device):
             logging.info(m2.format(diff_time, epoch, idx, len(train_loader),
                          float(loss.item()), acc))
             start_time = time()
+
+    if metric_logger is not None:
+        metric_logger.add_value('acc', float(correct) / total, 'train')
+        metric_logger.add_value('train_loss', float(train_loss), 'other')
 
     return net
 
@@ -196,13 +202,17 @@ def main(yml_name=None, seed=None, label='', use_cuda=True):
     best_acc, best_epoch, accuracies = 0, 0, []
     total_epochs = tinfo['total_epochs']
 
+    metric_logger = MetricsOverEpochsViz(train_val_metrics = ['acc'],
+                                         other_metrics = ['train_loss'])
+
     for epoch in range(start_epoch + 1, total_epochs + 1):
         #scheduler.step()
         net = train(train_loader, net, optimizer, criterion, yml['training_info'],
-                    epoch, device)
+                    epoch, device, metric_logger=metric_logger)
         save_checkpoints(net, optimizer, epoch, model_file)
         # # testing mode to evaluate accuracy.
         acc, predicted, labels = test(net, test_loader, epoch, device=device)
+        metric_logger.add_value('acc', acc, 'val')
         if acc > best_acc:
             out_path = join(model_file, 'net_best_1.pth')
             state = {'net': net.state_dict(), 'acc': acc,
@@ -216,7 +226,12 @@ def main(yml_name=None, seed=None, label='', use_cuda=True):
         print(msg.format(epoch,  acc, best_acc, best_epoch))
         logging.info(msg.format(epoch, acc, best_acc, best_epoch))
 
+        metric_logger.step()
+        metric_logger.save_values(out)
+
         scheduler.step()
+        
+    metric_logger.plot_values(out)
     d1 = {'acc': accuracies, 'best_acc': best_acc, 'epoch': best_epoch}
     export_pickle(d1, join(out, 'metadata.pkl'))
 
