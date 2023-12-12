@@ -18,6 +18,7 @@ from utils.create_logger import create_logger
 from utils import (load_checkpoints, save_checkpoints, create_result_dir,
                    load_model, print_params, init_weights)
 from utils.visualisations import MetricsOverEpochsViz
+from utils.activations import TrainTimeActivations
 
 from torchvision_db import return_loaders
 try:
@@ -45,12 +46,14 @@ class LabelSmoothingCrossEntropy(nn.Module):
         return loss.mean()
 
 def train(train_loader, net, optimizer, criterion, train_info, epoch, device,
-          metric_logger=None):
+          metric_logger=None, tta=None):
     """ Perform single epoch of the training."""
     net.train()
 
+    add_reg_loss = tta is not None and tta.type=='regularisation'
+
     # # initialize variables that are augmented in every batch.
-    train_loss, correct, total = 0, 0, 0
+    train_loss, reg_loss, correct, total = 0, 0, 0, 0
     start_time = time()
     for idx, data_dict in enumerate(train_loader):
         img = data_dict[0]
@@ -60,6 +63,16 @@ def train(train_loader, net, optimizer, criterion, train_info, epoch, device,
         optimizer.zero_grad()
         pred = net(inputs)
         loss = criterion(pred, label)
+
+        if add_reg_loss:
+            reg = tta.activations_tracker.calc_regularisation_term()
+            if torch.isnan(reg):
+                print('Regularisation loss is nan')
+                reg.activations_tracker.print_active_params()
+                sys.stdout.flush()
+            reg_loss += reg.item()
+            loss +=  reg
+
         assert not torch.isnan(loss), 'NaN loss.'
         loss.backward()
 
@@ -72,17 +85,22 @@ def train(train_loader, net, optimizer, criterion, train_info, epoch, device,
         if idx % train_info['display_interval'] == 0:
             diff_time = time() - start_time
             acc = float(correct) / total
+
+            reg_loss_str = f", Reg loss: {reg_loss:.04f}" if add_reg_loss else ''
             m2 = ('Time: {:.04f}, Epoch: {}, Epoch iters: {} / {}\t'
-                  'Loss: {:.04f}, Acc: {:.06f}')
+                  'Loss: {:.04f}{}, Acc: {:.06f}')
             print(m2.format(diff_time, epoch, idx, len(train_loader),
-                            float(train_loss), acc))
+                            float(train_loss), reg_loss_str, acc))
+
             logging.info(m2.format(diff_time, epoch, idx, len(train_loader),
-                         float(loss.item()), acc))
+                         float(loss.item()), reg_loss_str, acc))
             start_time = time()
 
     if metric_logger is not None:
         metric_logger.add_value('acc', float(correct) / total, 'train')
         metric_logger.add_value('train_loss', float(train_loss), 'other')
+        if add_reg_loss is not None:
+            metric_logger.add_value('reg_loss', float(reg_loss), 'other')
 
     return net
 
@@ -156,8 +174,20 @@ def main(yml_name=None, seed=None, label='', use_cuda=True):
 
     m1 = 'Length of iters per epoch: {}. Length of testing batches: {}.'
     print(m1.format(len(train_loader), len(test_loader)))
+
+    metric_logger = MetricsOverEpochsViz(train_val_metrics = ['acc'],
+                                         other_metrics = ['train_loss'])
+
+
+    tinfo = yml['training_info']
+    tta = None
+    if 'use_train_time_activ' in tinfo:
+        tta = TrainTimeActivations(tinfo['use_train_time_activ'],
+                                   metric_logger, **tinfo['tta_config'])
+
     # # load the model.
     modc = yml['model']
+    modc['args']['tta'] = tta
     net = load_model(modc['fn'], modc['name'], modc['args']).to(device)
     if torch.cuda.device_count() > 1:
         print('Found {} GPUs.'.format(torch.cuda.device_count()))
@@ -165,6 +195,9 @@ def main(yml_name=None, seed=None, label='', use_cuda=True):
     if 'init' in modc['args'].keys():
         net.init = modc['args']['init']
     init_weights(net)
+
+    if tta is not None:
+        tta.add_activations_visualiser(net)
 
     # # define the appropriate paths.
     model_file = mkdir_p(join(out, 'models'))
@@ -185,7 +218,6 @@ def main(yml_name=None, seed=None, label='', use_cuda=True):
     print(decay)
     net, optimizer, start_epoch = load_checkpoints(net, optimizer, model_file)
     # # get the milestones/gamma for the optimizer.
-    tinfo = yml['training_info']
     mil = tinfo['lr_milestones'] if 'lr_milestones' in tinfo.keys() else [40, 60, 80, 100]
     gamma = tinfo['lr_gamma'] if 'lr_gamma' in tinfo.keys() else 0.1
 
@@ -202,14 +234,19 @@ def main(yml_name=None, seed=None, label='', use_cuda=True):
     best_acc, best_epoch, accuracies = 0, 0, []
     total_epochs = tinfo['total_epochs']
 
-    metric_logger = MetricsOverEpochsViz(train_val_metrics = ['acc'],
-                                         other_metrics = ['train_loss'])
-
     for epoch in range(start_epoch + 1, total_epochs + 1):
         #scheduler.step()
+
+        if tta is not None:
+            tta.step_before_train(epoch)
+
         net = train(train_loader, net, optimizer, criterion, yml['training_info'],
-                    epoch, device, metric_logger=metric_logger)
+                    epoch, device, metric_logger=metric_logger, tta=tta)
         save_checkpoints(net, optimizer, epoch, model_file)
+
+        if tta is not None:
+            tta.step_after_train(net, out)
+
         # # testing mode to evaluate accuracy.
         acc, predicted, labels = test(net, test_loader, epoch, device=device)
         metric_logger.add_value('acc', acc, 'val')
@@ -217,6 +254,10 @@ def main(yml_name=None, seed=None, label='', use_cuda=True):
             out_path = join(model_file, 'net_best_1.pth')
             state = {'net': net.state_dict(), 'acc': acc,
                      'epoch': epoch, 'n_params': total_params}
+
+            if tta is not None:
+                state = tta.add_activ_state_info(state)
+
             torch.save(state, out_path)
             best_acc = acc
             best_epoch = epoch
@@ -230,7 +271,7 @@ def main(yml_name=None, seed=None, label='', use_cuda=True):
         metric_logger.save_values(out)
 
         scheduler.step()
-        
+
     metric_logger.plot_values(out)
     d1 = {'acc': accuracies, 'best_acc': best_acc, 'epoch': best_epoch}
     export_pickle(d1, join(out, 'metadata.pkl'))

@@ -47,7 +47,8 @@ class BasicBlock(nn.Module):
     expansion = 1
 
     def __init__(self, in_planes, planes, stride=1, use_alpha=True, n_lconvs=1,
-                 norm_local=None, kern_loc=1, norm_layer=2, norm_x=-1, **kwargs):
+                 norm_local=None, kern_loc=1, norm_layer=2, norm_x=-1, tta=None,
+                 **kwargs):
         """
         R-PolyNets residual block.
         :param use_alpha: bool; if True, use a learnable parameter to regularize the contribution of the second order term.
@@ -56,10 +57,13 @@ class BasicBlock(nn.Module):
         :param kern_loc: int
         :param norm_layer: int; the type of normalization scheme for the first order term.
         :param norm_x: int; the type of normalization scheme for the 'x' (shortcut one).
+        :param tta: TrainTimeActivations; object to handle train time activations (if any, otherwise None)
         :param kwargs:
-        """                 
+        """
         super(BasicBlock, self).__init__()
-        
+
+        self.tta = tta
+
         self._norm_layer = get_norm(norm_layer)
         self._norm_local = get_norm(norm_local)
         self._norm_x = get_norm(norm_x)
@@ -105,13 +109,15 @@ class BasicBlock(nn.Module):
         # # define 'local' convs, i.e. applied only to second order term, either
         # # on x or after the multiplication.
         self.def_local_convs(planes, n_lconvs, kern_loc, self._norm_local, key='l')
-            
+
         print('norm layer: {}'.format(norm_layer))
         print('norm_x: {}'.format(norm_x))
         print('norm_local: {}'.format(norm_local))
-        
+
+        self.activ = lambda x: x if self.tta is None else self.tta.get_activ_layer()
+
     def forward(self, x):
-        out = self.bn1(self.conv1(x))
+        out = self.activ(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
         # multiple out with beta
         out1 = out + self.shortcut(x)

@@ -1,0 +1,39 @@
+comment: 'Parameters for R_PolyNets on Cifar100'
+learning_rate: 0.1
+
+dataset:
+  root: /vol/deform/grigoris/data/2019_resnet/data/
+  batch_size: 128
+  db: cifar100
+
+model:
+  fn: models/R_PolyNets.py
+  name: R_PolyNets_wrapper
+  args:
+    train: True
+    num_classes: 100
+    use_alpha: False
+    n_lconvs: 1
+    norm_local: 0
+    norm_layer: [a, a, a, 0]
+    num_blocks: [2, 2, 2, 2]
+
+training_info:
+  use_train_time_activ: fixed_increment # one of 'fixed_increment', 'regularised', or None/False
+  total_epochs: 120
+  display_interval: 200
+  lr_milestones: [40, 60, 80, 100]
+  lr_gamma: 0.1
+  smoothing: 0.4
+  multi_step: True
+  exponential_step: False
+  train_time_activations:
+    start_increment_epoch: 1
+    end_increment_epoch: 80
+    increment_patience: 5
+    param_threshold: 0.99
+    epochs_before_regularisation: 0
+    init_regularisation_w: 0.01
+    scheduler:
+      increase_factor: 2
+      patience: 10
