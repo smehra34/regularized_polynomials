@@ -196,6 +196,10 @@ def main(yml_name=None, seed=None, label='', use_cuda=True):
         net.init = modc['args']['init']
     init_weights(net)
 
+    print('\n\n')
+    print(net)
+    print('\n\n')
+
     if tta is not None:
         tta.add_activations_visualiser(net)
 
