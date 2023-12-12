@@ -114,7 +114,7 @@ class BasicBlock(nn.Module):
         print('norm_x: {}'.format(norm_x))
         print('norm_local: {}'.format(norm_local))
 
-        self.activ = lambda x: x if self.tta is None else self.tta.get_activ_layer()
+        self.activ = (lambda x: x) if self.tta is None else self.tta.get_activ_layer()
 
     def forward(self, x):
         out = self.activ(self.bn1(self.conv1(x)))

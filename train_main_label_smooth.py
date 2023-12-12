@@ -99,7 +99,7 @@ def train(train_loader, net, optimizer, criterion, train_info, epoch, device,
     if metric_logger is not None:
         metric_logger.add_value('acc', float(correct) / total, 'train')
         metric_logger.add_value('train_loss', float(train_loss), 'other')
-        if add_reg_loss is not None:
+        if add_reg_loss:
             metric_logger.add_value('reg_loss', float(reg_loss), 'other')
 
     return net

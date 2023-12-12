@@ -27,7 +27,7 @@ training_info:
   smoothing: 0.4
   multi_step: True
   exponential_step: False
-  train_time_activations:
+  tta_config:
     start_increment_epoch: 1
     end_increment_epoch: 80
     increment_patience: 5

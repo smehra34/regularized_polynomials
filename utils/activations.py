@@ -9,7 +9,7 @@ import numpy as np
 
 class TrainTimeActivations():
 
-    def __init__(self, type=None, metric_logger=None **kwargs):
+    def __init__(self, type=None, metric_logger=None, **kwargs):
         '''
         :param type: str; One of 'regularised' for PReLU with sparisty loss,
             'fixed_increment' for LeakyReLU with increment, or None/False for
@@ -19,17 +19,16 @@ class TrainTimeActivations():
         '''
 
         self.type = type
-        self.activations_tracker = ActivationsTracker(kwargs) if type == 'regularised' else None
-        self.activation_incrementer = ActivationIncrementer(kwargs) if type == 'fixed_increment' else None
+        self.activations_tracker = ActivationsTracker(**kwargs) if type == 'regularised' else None
+        self.activation_incrementer = ActivationIncrementer(**kwargs) if type == 'fixed_increment' else None
         self.tta_config = kwargs
         self.metric_logger = metric_logger
         if metric_logger is not None:
-            activation_metrics_to_track = []
             if self.type == 'regularised':
-                activation_metrics_to_track += ['num_active', 'reg_loss']
+                metric_logger.add_metric('num_active', 'other')
+                metric_logger.add_metric('reg_loss', 'other')
             elif self.type == 'fixed_increment':
-                activation_metrics_to_track += ['leakyrelu_slope']
-            metric_logger.metrics['other'] += activation_metrics_to_track
+                metric_logger.add_metric('leakyrelu_slope', 'other')
 
 
     def get_activ_layer(self):
@@ -38,7 +37,7 @@ class TrainTimeActivations():
             layer = nn.PReLU(init=0)
             self.activations_tracker.add_layer(layer)
             return layer
-        elif self.train_time_activ == 'fixed_increment':
+        elif self.type == 'fixed_increment':
             return SHARED_LEAKYRELU_LAYER
         return nn.ReLU(inplace=True)
 

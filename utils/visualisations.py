@@ -23,6 +23,17 @@ class MetricsOverEpochsViz():
             'other': other_metrics
         }
 
+    def add_metric(self, metric, type):
+
+        '''
+        :param metric: str; name of metric to add
+        :param type: ['train', 'val', 'other']: whether it's a train, val or
+            other metric
+        '''
+
+        self.metrics[type][metric] = []
+
+
     def add_value(self, metric, value, type):
 
         '''
