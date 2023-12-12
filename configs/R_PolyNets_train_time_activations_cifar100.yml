@@ -20,7 +20,7 @@ model:
 
 training_info:
   use_train_time_activ: fixed_increment # one of 'fixed_increment', 'regularised', or None/False
-  total_epochs: 120
+  total_epochs: 200
   display_interval: 200
   lr_milestones: [40, 60, 80, 100]
   lr_gamma: 0.1
@@ -28,12 +28,13 @@ training_info:
   multi_step: True
   exponential_step: False
   tta_config:
-    start_increment_epoch: 1
-    end_increment_epoch: 80
-    increment_patience: 5
-    param_threshold: 0.99
-    epochs_before_regularisation: 0
-    init_regularisation_w: 0.01
-    scheduler:
-      increase_factor: 2
-      patience: 10
+    pretraining_epochs: 80 # number of epochs to pretrain the model with fixed activations before applying regularisation/fixed_increment. will reset the lr and lr scheduler after this point as well
+    start_increment_epoch: 1 # epoch number at which to start incrementing leakyrelu slope if 'fixed_increment'
+    end_increment_epoch: 80 # epoch number at which to stop incrementing leakyrelu slope if 'fixed_increment'
+    increment_patience: 5 # number of epochs to wait between each increment if 'fixed_increment'
+    param_threshold: 0.99 # how close to linearised PReLU param should be before deactivating the layer if 'regularised'
+    epochs_before_regularisation: 0 # number of epochs before applying regularisation (PReLU parameter freely updated) if 'regularised'
+    init_regularisation_w: 0.01 # initial weight for sparsity loss of PReLU params if regularised
+    scheduler: # optional scheduler on the weight of the sparsity loss when no activations are being linearised if regularised.
+      increase_factor: 2 # factor to increase weight by
+      patience: 10 # number of epochs of no decrease in num_activ to wait before increasing weight

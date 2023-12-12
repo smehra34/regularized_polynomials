@@ -9,18 +9,22 @@ import numpy as np
 
 class TrainTimeActivations():
 
-    def __init__(self, type=None, metric_logger=None, **kwargs):
+    def __init__(self, type=None, metric_logger=None, pretraining_epochs=0,
+                 **kwargs):
         '''
         :param type: str; One of 'regularised' for PReLU with sparisty loss,
             'fixed_increment' for LeakyReLU with increment, or None/False for
             no train time activations
         :param metric_logger: MetricsOverEpochsViz; optional to track the
             relevant value(s) for the train time activation layers
+        :param pretraining_epochs: int; number of epochs to pretrain with fixed
+            activations before applying relevant tta method
         '''
 
         self.type = type
         self.activations_tracker = ActivationsTracker(**kwargs) if type == 'regularised' else None
-        self.activation_incrementer = ActivationIncrementer(**kwargs) if type == 'fixed_increment' else None
+        self.activation_incrementer = ActivationIncrementer(pretraining_epochs=pretraining_epochs, **kwargs) if type == 'fixed_increment' else None
+        self.pretraining_epochs = pretraining_epochs
         self.tta_config = kwargs
         self.metric_logger = metric_logger
         if metric_logger is not None:
@@ -29,7 +33,6 @@ class TrainTimeActivations():
                 metric_logger.add_metric('reg_loss', 'other')
             elif self.type == 'fixed_increment':
                 metric_logger.add_metric('leakyrelu_slope', 'other')
-
 
     def get_activ_layer(self):
         """Returns the relevant activation layer"""
@@ -57,15 +60,27 @@ class TrainTimeActivations():
                 self.metric_logger.add_value('leakyrelu_slope', slope, 'other')
 
 
-        if self.type == 'regularised' and epoch == self.tta_config['epochs_before_regularisation'] + 1:
-            self.activations_tracker.start_regularising()
-            msg = f"\n\n----- Activations now being penalised at epoch {epoch} with weight {self.activations_tracker.regularisation_w} -----\n\n"
-            print(msg)
+        if self.type == 'regularised':
 
-            # if reg weight scheduler specified in config, create this
-            if 'scheduler' in self.tta_config:
-                self.reg_w_scheduler = RegularisationWeightScheduler(self.activations_tracker,
-                                                                **self.tta_config['scheduler'])
+            # make sure all active prelu layers are learnable if we're past the
+            # pretraining phase, otherwise make sure they're all frozen
+            if epoch > self.pretraining_epochs:
+                self.activations_tracker.unfreeze_all_active_layers()
+            else:
+                self.activations_tracker.freeze_all_active_layers()
+
+            if epoch == self.pretraining_epochs + self.tta_config['epochs_before_regularisation'] + 1:
+                self.activations_tracker.start_regularising()
+                msg = f"\n\n----- Activations now being penalised at epoch {epoch} with weight {self.activations_tracker.regularisation_w} -----\n\n"
+                print(msg)
+
+                # if reg weight scheduler specified in config, create this
+                if 'scheduler' in self.tta_config:
+                    self.reg_w_scheduler = RegularisationWeightScheduler(self.activations_tracker,
+                                                                    **self.tta_config['scheduler'])
+
+        reset_optim_and_lr_sched = (self.pretraining_epochs != 0) and (epoch == self.pretraining_epochs + 1)
+        return reset_optim_and_lr_sched
 
     def step_after_train(self, net, outdir):
 
@@ -314,15 +329,16 @@ SHARED_LEAKYRELU_LAYER = nn.LeakyReLU(negative_slope=INIT_SLOPE, inplace=True)
 class ActivationIncrementer():
 
     def __init__(self, start_increment_epoch, end_increment_epoch,
-                 increment_patience=1, **kwargs):
+                 increment_patience=1, pretraining_epochs=0, **kwargs):
         '''
         :param start_increment_epoch: int; when to start incrementing leakyrelu slope
         :param end_increment_epoch: int; when to stop incrementing leakyrelu slope
         :param increment_patience: int; number of epochs to wait before incrementing again
+        :param pretraining_epochs: int; number of epochs for pretraining model with fixed activations before applying incrementer
         '''
 
-        self.start_epoch = start_increment_epoch
-        self.end_epoch = end_increment_epoch
+        self.start_epoch = start_increment_epoch + pretraining_epochs
+        self.end_epoch = end_increment_epoch + pretraining_epochs
         self.increment_patience = increment_patience
         self.current_epoch = 0
         self.epochs_since_increment = 0

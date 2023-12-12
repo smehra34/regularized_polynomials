@@ -136,6 +136,30 @@ def test(net, test_loader, epoch, device='cuda', verbose=False):
     return correct / total, torch.cat(cm_predict).view(-1), torch.cat(cm_target).view(-1)
 
 
+def get_optimizer(params, lr, weight_decay):
+    return optim.SGD(params, lr=lr, momentum=0.9, weight_decay=weight_decay)
+
+
+def get_lr_scheduler(optimizer, milestones=None, gamma=None, start_epoch=0, verbose=True):
+
+    if tinfo['multi_step']:
+        print('multi step!')
+        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones,
+                                                   gamma=gamma, last_epoch=start_epoch,
+                                                   verbose=verbose)
+    elif tinfo['exponential_step']:
+        print('exponential step!')
+        scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.92,
+                                                     last_epoch=start_epoch,
+                                                     verbose=verbose)
+    elif tinfo['cosine_step']:
+        print('Cosine step!')
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=120,
+                                                         verbose=verbose)
+
+    return scheduler
+
+
 def main(yml_name=None, seed=None, label='', use_cuda=True):
     # # set the seed for all.
     if seed is None:
@@ -215,8 +239,9 @@ def main(yml_name=None, seed=None, label='', use_cuda=True):
     params = list(net.parameters())
     sub_params = [p for p in params if p.requires_grad]
     decay = yml['training_info']['weight_dec'] if 'weight_dec' in yml['training_info'].keys() else 5e-4
-    optimizer = optim.SGD(sub_params, lr=yml['learning_rate'],
-                          momentum=0.9, weight_decay=decay)
+
+    optimizer = get_optimizer(sub_params, yml['learning_rate'], decay)
+
     total_params = print_params(net, logging=logging)
     print('The value of weight decay:')
     print(decay)
@@ -225,15 +250,8 @@ def main(yml_name=None, seed=None, label='', use_cuda=True):
     mil = tinfo['lr_milestones'] if 'lr_milestones' in tinfo.keys() else [40, 60, 80, 100]
     gamma = tinfo['lr_gamma'] if 'lr_gamma' in tinfo.keys() else 0.1
 
-    if tinfo['multi_step']:
-        print('multi step!')
-        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=mil, gamma=gamma, last_epoch=start_epoch)
-    elif tinfo['exponential_step']:
-        print('exponential step!')
-        scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.92, last_epoch=start_epoch)
-    elif tinfo['cosine_step']:
-        print('Cosine step!')
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=120)
+    scheduler = get_lr_scheduler(optimizer, milestones=mil, gamma=gamma,
+                                 start_epoch=start_epoch)
 
     best_acc, best_epoch, accuracies = 0, 0, []
     total_epochs = tinfo['total_epochs']
@@ -242,7 +260,13 @@ def main(yml_name=None, seed=None, label='', use_cuda=True):
         #scheduler.step()
 
         if tta is not None:
-            tta.step_before_train(epoch)
+            reset_optim_and_lr_sched = tta.step_before_train(epoch)
+            if reset_optim_and_lr_sched:
+                optimizer = get_optimizer(sub_params, yml['learning_rate'], decay)
+                scheduler = get_lr_scheduler(optimizer, milestones=mil, gamma=gamma,
+                                             start_epoch=start_epoch)
+                print('Model pretraining finished - resetting optimizer and lr scheduler')
+
 
         net = train(train_loader, net, optimizer, criterion, yml['training_info'],
                     epoch, device, metric_logger=metric_logger, tta=tta)
