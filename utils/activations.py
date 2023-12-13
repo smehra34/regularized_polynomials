@@ -5,6 +5,7 @@ import pickle
 import os
 import matplotlib.pyplot as plt
 import numpy as np
+from utils.optim import get_optimizer, get_lr_scheduler
 
 
 class TrainTimeActivations():
@@ -81,6 +82,22 @@ class TrainTimeActivations():
 
         reset_optim_and_lr_sched = (self.pretraining_epochs != 0) and (epoch == self.pretraining_epochs + 1)
         return reset_optim_and_lr_sched
+
+    def get_new_optimizer_and_scheduler(self, sub_params, lr, decay,
+                                        lr_milestones, gamma, tinfo):
+
+        lr = lr if 'initial_lr' not in self.tta_config else self.tta_config['initial_lr']
+        decay = decay if 'decay' not in self.tta_config else self.tta_config['decay']
+        lr_milestones = lr_milestones if 'lr_milestones' not in self.tta_config else self.tta_config['lr_milestones']
+        gamma = gamma if 'gamma' not in self.tta_config else self.tta_config['gamma']
+
+        optimizer = get_optimizer(sub_params, lr, decay)
+        scheduler = get_lr_scheduler(optimizer, tinfo, milestones=lr_milestones,
+                                     gamma=gamma)
+
+        print(f"Resetting optimizer with {lr=}, {decay=}, and LR scheduler with {lr_milestones=}, {gamma=}")
+        return optimizer, scheduler
+
 
     def step_after_train(self, net, outdir):
 

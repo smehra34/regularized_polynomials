@@ -29,6 +29,8 @@ training_info:
   exponential_step: False
   tta_config:
     pretraining_epochs: 80 # number of epochs to pretrain the model with fixed activations before applying regularisation/fixed_increment. will reset the lr and lr scheduler after this point as well
+    lr_milestones: [90, 110] # lr milestones to use for the reset lr scheduler after model pretraining
+    initial_lr: 0.01 # initial lr to use for the new optimizer after model pretraining
     start_increment_epoch: 1 # epoch number at which to start incrementing leakyrelu slope if 'fixed_increment'
     end_increment_epoch: 80 # epoch number at which to stop incrementing leakyrelu slope if 'fixed_increment'
     increment_patience: 5 # number of epochs to wait between each increment if 'fixed_increment'
