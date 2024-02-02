@@ -24,6 +24,7 @@ class TrainTimeActivations():
 
         self.type = type
         self.activations_tracker = ActivationsTracker(**kwargs) if type == 'regularised' else None
+        self.reg_w_scheduler = None
         self.activation_incrementer = ActivationIncrementer(pretraining_epochs=pretraining_epochs, **kwargs) if type == 'fixed_increment' else None
         self.pretraining_epochs = pretraining_epochs
         self.tta_config = kwargs
@@ -65,12 +66,12 @@ class TrainTimeActivations():
 
             # make sure all active prelu layers are learnable if we're past the
             # pretraining phase, otherwise make sure they're all frozen
-            if epoch > self.pretraining_epochs:
+            if epoch >= self.pretraining_epochs:
                 self.activations_tracker.unfreeze_all_active_layers()
             else:
                 self.activations_tracker.freeze_all_active_layers()
 
-            if epoch == self.pretraining_epochs + self.tta_config['epochs_before_regularisation'] + 1:
+            if epoch == self.pretraining_epochs + self.tta_config['epochs_before_regularisation']:
                 self.activations_tracker.start_regularising()
                 msg = f"\n\n----- Activations now being penalised at epoch {epoch} with weight {self.activations_tracker.regularisation_w} -----\n\n"
                 print(msg)
@@ -326,7 +327,7 @@ class ActivationsVisualiser():
         plt.yticks(np.arange(len(values)), list(values.keys()))
         plt.ylabel('Activation layer', fontsize=12)
 
-        x_ticks_step = max(1, len(values[al]) // 20)
+        x_ticks_step = max(1, len(values[al]) // 5)
         plt.xticks(np.arange(0, len(values[al]), step=x_ticks_step),
                    [str(i) for i in range(0, len(values[al]), x_ticks_step)])
         plt.xlabel('Epoch', fontsize=12)

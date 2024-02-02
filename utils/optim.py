@@ -5,7 +5,7 @@ def get_optimizer(params, lr, weight_decay):
     return optim.SGD(params, lr=lr, momentum=0.9, weight_decay=weight_decay)
 
 
-def get_lr_scheduler(optimizer, tinfo, milestones=None, gamma=None, start_epoch=0, verbose=True):
+def get_lr_scheduler(optimizer, tinfo, milestones=None, gamma=None, start_epoch=-1, verbose=True):
 
     if tinfo['multi_step']:
         print('multi step!')

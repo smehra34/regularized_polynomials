@@ -51,7 +51,7 @@ def train(train_loader, net, optimizer, criterion, train_info, epoch, device,
     """ Perform single epoch of the training."""
     net.train()
 
-    add_reg_loss = tta is not None and tta.type=='regularisation'
+    add_reg_loss = tta is not None and tta.type=='regularised'
 
     # # initialize variables that are augmented in every batch.
     train_loss, reg_loss, correct, total = 0, 0, 0, 0
@@ -240,8 +240,8 @@ def main(yml_name=None, seed=None, label='', use_cuda=True):
             reset_optim_and_lr_sched = tta.step_before_train(epoch)
             if reset_optim_and_lr_sched:
                 print('Model pretraining finished - resetting optimizer and lr scheduler')
-                optimizer, scheduler = get_new_optimizer_and_scheduler(sub_params, yml['learning_rate'], decay,
-                                                                       mil, gamma, tinfo)
+                optimizer, scheduler = tta.get_new_optimizer_and_scheduler(sub_params, yml['learning_rate'], decay,
+                                                                           mil, gamma, tinfo)
 
 
         net = train(train_loader, net, optimizer, criterion, yml['training_info'],
