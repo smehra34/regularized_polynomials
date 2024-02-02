@@ -32,12 +32,13 @@ def get_norm(norm_local):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, in_planes, planes, stride=1, use_activ=False, use_alpha=False, n_lconvs=0, 
+    def __init__(self, in_planes, planes, stride=1, use_activ=False, use_alpha=False, n_lconvs=0,
                  norm_local=None, kern_loc=1, norm_layer=None, norm_x=-1, n_xconvs=0, append_bef_norm=True,
                  use_pr_conv=False, kern_prev=1, norm_pr=-1, dropout=0, train=True, limit_pr=None,
                  sum_prev=False, additive_gn=0, skip_con_dense=False,
-                 use_sep_short=False, block_id=None, use_sep_short_all=False, use_xlconv=True, 
-                 use_full_prev_poly=False, use_theta=False, random_scaling=False, start_block=0, **kwargs):
+                 use_sep_short=False, block_id=None, use_sep_short_all=False, use_xlconv=True,
+                 use_full_prev_poly=False, use_theta=False, random_scaling=False, start_block=0,
+                 tta=None, **kwargs):
         """
         D-PolyNets residual block. The difference from Pi-net residual block, is that in each block we
         also perform one dense connection from previous blocks. That means that during forward, we pass two inputs.
@@ -57,11 +58,15 @@ class BasicBlock(nn.Module):
         :param limit_pr: int; the number of previous Hadamard connections to include; if None, it
             multiplies with all of them.
         :param sum_prev: bool; if True use a skip in the dense product.
-        :param additive_gn: If 0, there is no Gaussian noise in the dense connections; if > 0, 
+        :param additive_gn: If 0, there is no Gaussian noise in the dense connections; if > 0,
             it samples an Gaussian noise in every iteration for every connection.
+        :param tta: TrainTimeActivations; object to handle train time activations (if any, otherwise None)
         :param kwargs:
         """
         super(BasicBlock, self).__init__()
+
+        self.tta = tta
+
         self._norm_layer = get_norm(norm_layer)
         self._norm_local = get_norm(norm_local)
         self._norm_x = get_norm(norm_x)
@@ -131,6 +136,7 @@ class BasicBlock(nn.Module):
         else:
             self.shortcut_sep = nn.Sequential()
         self.activ = partial(nn.ReLU(inplace=True)) if self.use_activ else lambda x: x
+        self.activ = self.activ if self.tta is None else self.tta.get_activ_layer()
         self.use_alpha = use_alpha
         if self.use_alpha:
             self.alpha = nn.Parameter(torch.ones(1))
